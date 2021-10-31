@@ -1,0 +1,69 @@
+// KNOWN ISSUES:
+// - no support for wildcards in field names
+// - no support for boosting
+//
+// ES docs -- https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html
+
+ESQueryGrammar {
+    ESQuery = query
+
+    reservedWord = "AND" | "OR" | "NOT" | "TO"
+    boolOperator = "AND" | "OR"
+    orSpace = space+
+    orLine = "|"
+
+    // STRING LITERALS
+    sourceCharacter = any
+    nonEscapeCharacter = ~(singleEscapeCharacter) sourceCharacter
+    characterEscapeSequence = singleEscapeCharacter
+                            | nonEscapeCharacter
+    singleEscapeCharacter = "\"" | "\\"
+    doubleStringCharacter = ~("\"" | "\\") sourceCharacter -- nonEscaped
+                          | "\\" characterEscapeSequence -- Escaped
+    singleESEscapeCharacter = " " | "+" | "-" | "=" | "!" | "(" | ")" | "{" | "}"
+                            | "[" | "]" | "^" | "\"" | "~" | "*" | "?" | ":" | "\\" | "/"
+    escapedESStringCharacter = "\\" singleESEscapeCharacter
+	wildcardCharacter = "*" | "?"
+    regexCharacter = "*" | "?" | "[" | "]" | "(" | ")"
+
+    unquotedString = ~reservedWord (escapedESStringCharacter | wildcardCharacter | alnum | "_" | "." | "-" | "’")+
+    quotedString = "\"" doubleStringCharacter* "\""
+
+    unquotedFuzzyString = unquotedString "~" alnum*
+    quotedFuzzyString = "\"" doubleStringCharacter* "\"" "~" alnum*
+
+    detachedCond = quotedFuzzyString | unquotedFuzzyString | quotedString | unquotedString
+
+    // UTILS
+    spaced<x> = space+ x space+
+    parented<x> = "(" space* x space* ")"
+
+    spacedBool = spaced<boolOperator>
+    genericBoolOp = spacedBool | orSpace | orLine
+
+    // FIELD QUERY
+    fieldName = ~reservedWord (alnum | "." | "_")+ &":"
+    fieldCond = fieldName ":" subquery
+
+    // RANGE QUERY
+    rangeValue = ~space ((alnum | "/" | "-" | ":" | "+")+ | "*")
+    rangeCond = (("[" | "{") space* rangeValue spaced<"TO"> rangeValue space* ("]" | "}"))
+    simpleRangeCond = (">" subquery) | ("<" subquery) | (">=" subquery) | ("<=" subquery)
+
+    // REGEX QUERY
+    regexCond = "/" (alnum | regexCharacter)+ "/"
+
+    // CONDITIONS
+    genericCond = fieldCond | rangeCond | simpleRangeCond | regexCond | detachedCond
+    cond = parented<genericCond> | genericCond
+
+    simpleNegation = "-" subquery
+    simpleMust = "+" subquery
+    longNegation = "NOT" space+ subquery
+    markedCond = longNegation | simpleNegation | simpleMust
+
+    queryElement = markedCond | cond
+	subquery = parented<query> | queryElement
+    query = nonemptyListOf<subquery, genericBoolOp> | parented<query>
+}
+
